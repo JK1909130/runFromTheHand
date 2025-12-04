@@ -26,7 +26,7 @@ class Healing : public Item
 class Weapon : public Item
 {
     public:
-    float damage;
+    int damage;
 };
 
 class Light_rounds : public Item
@@ -91,213 +91,250 @@ class Magazine : public Item
 
 ////////////////////////////////////////////////
 
-// template <typename T>
-// class MagStack : public Magazine
-// {
-// public:
-//     int current_count;
-//     T* cursor; // top of the stack
+template <typename T>
+class Mag : public Magazine
+{
+public:
+    int current_count;
+    T* cursor; // top of the stack
 
-//     MagStack(int max_size = 5)
-//     {
-//         cursor = nullptr;
-//         current_count = 0;
-//         max = max_size;
-//     }
+    Mag(int max_size = 5)
+    {
+        cursor = nullptr;
+        current_count = 0;
+        max = max_size;
+    }
 
-//     void load(T* round)
-//     {
-//         if (current_count >= max)
-//         {
-//             std::cout << "mag full\n";
-//             return;
-//         }
+    void load(T* round)
+    {
+        if (current_count >= max)
+        {
+            std::cout << "mag full\n";
+            return;
+        }
 
-//         round->prev = nullptr;
-//         round->next = cursor;
+        round->prev = nullptr;
+        round->next = cursor;
 
-//         if (cursor)
-//             cursor->prev = round;
+        if (cursor)
+            cursor->prev = round;
 
-//         cursor = round;
-//         current_count++;
-//     }
+        cursor = round;
+        current_count++;
+    }
 
-//     T* unload() // remove top round
-//     {
-//         if (!cursor) return nullptr;
+    T* unload() // remove top round
+    {
+        if (!cursor) return nullptr;
 
-//         T* top = cursor;
-//         cursor = cursor->next;
+        T* top = cursor;
+        cursor = cursor->next;
 
-//         if (cursor)
-//             cursor->prev = nullptr;
+        if (cursor)
+            cursor->prev = nullptr;
 
-//         top->next = nullptr;
-//         top->prev = nullptr;
+        top->next = nullptr;
+        top->prev = nullptr;
 
-//         current_count--;
-//         return top;
-//     }
+        current_count--;
+        return top;
+    }
 
-//     ~MagStack()
-//     {
-//         T* tmp;
-//         while (cursor)
-//         {
-//             tmp = cursor->next;
-//             delete cursor;
-//             cursor = tmp;
-//         }
-//     }
-// };
-
-
+    ~Mag()
+    {
+        T* tmp;
+        while (cursor)
+        {
+            tmp = cursor->next;
+            delete cursor;
+            cursor = tmp;
+        }
+    }
+};
 
 ////////////////////////////////////////////////
-//Learn this
-class Rifle_mag : public Magazine //the stack
-{
-   int current_rounds;
-   Heavy_rounds* cursor; //to point at the wanted round 
-   Rifle_mag()
-   {
-    cursor = nullptr;
-    max = 5;
-    current_rounds = 0;
-   } 
-   void load(Heavy_rounds* round)
-   {
-    if(current_rounds==0)
-    {
-        round->next = nullptr;
-        cursor = round;
-        current_rounds++;
-    }else if(current_rounds>0 && current_rounds<max)
-    {
-        round->prev = nullptr;
-        round->next = cursor;
-        cursor->prev = round;
-        cursor = round;
-        current_rounds++;
-    }else {cout<<"mag full\n";}
-   }
-   ~Rifle_mag()
-    {
-        // Clean up all nodes in the stack
-        Heavy_rounds* tmp;
-        while (cursor)
-        {
-            tmp = cursor->next;
-            delete cursor;
-            cursor = tmp;
-        }
-    }
-};
 
-
-class Shotgun_mag : public Magazine
-{   
-    public:
-   int current_shells;
-   Shell* cursor; //to point at the wanted shell 
-   Shotgun_mag()
-   {
-    cursor = nullptr;
-    max = 5;
-    current_shells = 0;
-   } 
-   void load(Shell* shell)
-   {
-    if(current_shells==0)
-    {
-        shell->next = nullptr;
-        cursor = shell;
-        current_shells++;
-    }else if(current_shells>0 && current_shells<max)
-    {
-        shell->prev = nullptr;
-        shell->next = cursor;
-        cursor->prev = shell;
-        cursor = shell;
-        current_shells++;
-    }else {cout<<"mag full\n";}
-   }
-   ~Shotgun_mag()
-    {
-        // Clean up all nodes in the stack
-        Shell* tmp;
-        while (cursor)
-        {
-            tmp = cursor->next;
-            delete cursor;
-            cursor = tmp;
-        }
-    }
-    
-};
-class Handgun_mag : public Magazine
-{
-   int current_rounds;
-   Light_rounds* cursor; //to point at the wanted round 
-   Handgun_mag()
-   {
-    cursor = nullptr;
-    max = 5;
-    current_rounds = 0;
-   } 
-   void load(Light_rounds* round)
-   {
-    if(current_rounds==0)
-    {
-        round->next = nullptr;
-        cursor = round;
-        current_rounds++;
-    }else if(current_rounds>0 && current_rounds<max)
-    {
-        round->prev = nullptr;
-        round->next = cursor;
-        cursor->prev = round;
-        cursor = round;
-        current_rounds++;
-    }else {cout<<"mag full\n";}
-   }
-   ~Handgun_mag()
-    {
-        // Clean up all nodes in the stack
-        Light_rounds* tmp;
-        while (cursor)
-        {
-            tmp = cursor->next;
-            delete cursor;
-            cursor = tmp;
-        }
-    }
-};
+template<typename T>
 class Gun : public Weapon
 {
     public:
+    T* chamber;
+    Mag<T>* mag;
+    Gun(): chamber(nullptr), mag(nullptr){}
+    virtual void load_to_chamber(T* round)
+    {
+        chamber = round;
+    }
+    virtual void load_from_mag()
+    {
+        if(mag && mag->cursor!=nullptr)
+        {
+            chamber = mag->unload();
+        }
+        else {cout<<"mag empty\n";}
 
+    }
+    void discard_round()
+    {
+        chamber = nullptr;
+    }
+    virtual void discard_mag()
+    {
+        mag = nullptr;
+    }
+    virtual void load_mag(Mag<T>* magazine)
+    {
+        mag = magazine;
+    }
+    virtual T* use()
+    {
+        T* out = chamber;
+        if(chamber!=nullptr)
+        {
+            chamber = nullptr;
+        }else{
+            cout<<"chamber empty\n";
+            return nullptr;
+        }
+        if( mag && mag->cursor!=nullptr)
+        {
+            chamber = mag->unload();
+        }
+
+        return out;
+    }
 };
-class Revolver : public Gun
+class Revolver : public Gun<Light_rounds>
 {
-    public:
+public:
+    Revolver() 
+    {
+        mag = new Mag<Light_rounds>(6); // fixed cylinder
+    }
+
+    void discard_mag() override {
+        std::cout << "Cannot remove revolver cylinder!\n";
+    }
+
+    Light_rounds* use() override {
+        if (!chamber && mag && mag->cursor) {
+            // load current round
+            chamber = mag->cursor;
+        }
+
+        if (!chamber) {
+            std::cout << "Chamber empty!\n";
+            return nullptr;
+        }
+        Light_rounds* out = chamber;
+        chamber = nullptr;
+
+        // move cursor to next round in the cylinder
+        if (mag && mag->cursor) 
+        {
+            if (mag->cursor->next) 
+            {
+                mag->cursor = mag->cursor->next;  // advance to next round
+            } else 
+            {
+                // wrap to first round in the linked list
+                Light_rounds* tmp = mag->cursor;
+                while (tmp->prev) tmp = tmp->prev;
+                mag->cursor = tmp;
+            }
+        }
+        return out;
+    }
 };
-class Rifle : public Gun
+
+
+class Rifle : public Gun<Heavy_rounds>
 {
-    public:
+public:
+    Rifle() {
+        mag = nullptr; // magazine is detachable
+    }
+
+    // Can discard magazine freely
+    void discard_mag() override {
+        mag = nullptr;
+    }
+    // load_from_mag(), use() inherited from Gun works as usual
 };
-class Shotgun : public Gun
+
+class Shotgun : public Gun<Shell>
 {
-    public:
+public:
+    Shotgun() {
+        mag = nullptr; // shotguns have no magazine
+    }
+
+    // Loading shell directly into chamber
+    void load_to_chamber(Shell* shell) override {
+        chamber = shell;
+    }
+
+    void load_from_mag() override {
+        std::cout << "Shotgun has no magazine!\n";
+    }
+
+    void discard_mag() override {
+        std::cout << "Shotgun has no magazine!\n";
+    }
 };
-class DBarrel_Shotgun : public Gun
+
+class DBarrel_Shotgun : public Weapon
 {
-    public:
+public:
+    Shell* chamber1;
+    Shell* chamber2;
+
+    DBarrel_Shotgun() : chamber1(nullptr), chamber2(nullptr) {}
+
+    // Load into first empty chamber
+    void load_shell(Shell* shell) {
+        if (!chamber1) {
+            chamber1 = shell;
+        } else if (!chamber2) {
+            chamber2 = shell;
+        } else {
+            std::cout << "Both barrels loaded!\n";
+        }
+    }
+
+    // Fire a specific chamber (1 or 2)
+    Shell* use(int barrel = 1) {
+        if (barrel == 1) {
+            if (!chamber1) {
+                std::cout << "Chamber 1 empty!\n";
+                return nullptr;
+            }
+            Shell* out = chamber1;
+            chamber1 = nullptr;
+            return out;
+        } else if (barrel == 2) {
+            if (!chamber2) {
+                std::cout << "Chamber 2 empty!\n";
+                return nullptr;
+            }
+            Shell* out = chamber2;
+            chamber2 = nullptr;
+            return out;
+        } else {
+            std::cout << "Invalid barrel number!\n";
+            return nullptr;
+        }
+    }
+
+    void discard_shells() {
+        chamber1 = nullptr;
+        chamber2 = nullptr;
+    }
 };
+
 class Melee : public Weapon
 {
-    int reach;
+    public:
 };
 class Bag
 {   
@@ -358,55 +395,126 @@ class Hand
     float velocity = 4.0 + 4.0 * ((0.023148148 - 0.01) / 4.0) + 0.01;
 };
 
+class Combat {
+public:
+    Player* player;
+    Enemy* enemy;
 
-class Combat
-{
-    Player* p;
-    Enemy* e;
-    Combat()
-    {
-        p = new Player();
-        e = new Enemy();
-    }
-    Combat(Player* p, Enemy* e): p(p), e(e){}
-    ~Combat() 
-    {
-        delete p;
-        delete e;
-    }
-    void playerAttacks(Weapon* w)
-    {
-        if(w != nullptr)
-        {
-            e->health-=w->damage;
-            cout<<p->name<<" dealt "<<w->damage<<" to "<<e->name<<"\n";
-        }else{
-            cout<<"No weapon! "<<p->name<<" can't attack\n";
+    Combat(Player* p, Enemy* e) : player(p), enemy(e) {}
+
+    void start() {
+        cout << "Combat begins: " << player->name << " vs " << enemy->name << "\n";
+
+        bool player_turn = true;
+
+        while (player->health > 0 && enemy->health > 0) {
+            if (player_turn) {
+                player_action();
+            } else {
+                enemy_action();
+            }
+            player_turn = !player_turn;
+        }
+
+        if (player->health <= 0) {
+            cout << player->name << " has been defeated!\n";
+        } else {
+            cout << enemy->name << " has been defeated!\n";
         }
     }
-    void playerAttacks(Revolver* w)
-    {
-        if(w != nullptr)
-        {
-            e->health-=w->damage;
-            cout<<p->name<<" dealt "<<w->damage<<" to "<<e->name<<"\n";
 
-        }else{
-            cout<<"No weapon! "<<p->name<<" can't attack\n";
+private:
+    void player_action() {
+        cout << "\nYour turn! Choose an action:\n";
+        cout << "1) Attack with main hand\n";
+        cout << "2) Attack with off hand\n";
+        cout << "3) Attack with melee\n";
+        cout << "4) Use item from bag\n";
+        int choice;
+        cin >> choice;
+
+        switch (choice) {
+        case 1:
+            attack(player->main_hand, enemy);
+            break;
+        case 2:
+            attack(player->off_hand, enemy);
+            break;
+        case 3:
+            attack(player->melee, enemy);
+            break;
+        case 4:
+            use_item();
+            break;
+        default:
+            cout << "Invalid choice. Skipping turn.\n";
         }
     }
-    void enemyAttacks(Melee* w)
-    {
-        p->health-=w->damage;
-        cout<<e->name<<" dealt "<<w->damage<<" to "<<p->name<<"\n";
+
+    void enemy_action() {
+        cout << "\nEnemy's turn: " << enemy->name << " attacks!\n";
+        attack(enemy->weapon, player);
     }
-    void playerHeals(Healing* h)
-    {
-        if(h != nullptr)
-        {p->health+=h->heal_value;}
-        else{cout<<"No healing items\n";}
+
+    void attack(Weapon* weapon, Player* target) {
+        if (!weapon) {
+            cout << "No weapon equipped! Attack does 1 damage.\n";
+            target->health -= 1;
+            return;
+        }
+
+        int damage = weapon->damage;  // You can later add bullet/mag damage boost
+        cout << "Attacked with " << typeid(*weapon).name() << " for " << damage << " damage!\n";
+        target->health -= damage;
+        if (target->health < 0) target->health = 0;
+
+        cout << target->name << " HP: " << target->health << "\n";
+    }
+
+    void attack(Weapon* weapon, Enemy* target) {
+        if (!weapon) {
+            cout << enemy->name << " has no weapon! Attack does 1 damage.\n";
+            target->health -= 1;
+            return;
+        }
+
+        int damage = weapon->damage; // can extend with rounds later
+        cout << enemy->name << " attacks with " << typeid(*weapon).name() << " for " << damage << " damage!\n";
+        target->health -= damage;
+        if (target->health < 0) target->health = 0;
+
+        cout << target->name << " HP: " << target->health << "\n";
+    }
+
+    void use_item() {
+        if (!player->bag || player->bag->items.empty()) {
+            cout << "Bag is empty!\n";
+            return;
+        }
+
+        cout << "Items in bag:\n";
+        for (size_t i = 0; i < player->bag->items.size(); ++i) {
+            cout << i << ": " << typeid(*player->bag->items[i]).name() << "\n";
+        }
+
+        int choice;
+        cin >> choice;
+        if (choice < 0 || choice >= player->bag->items.size()) {
+            cout << "Invalid item!\n";
+            return;
+        }
+
+        Item* item = player->bag->items[choice];
+        // For now just heal 10 HP if it's a consumable, can extend later
+        player->health += 10;
+        if (player->health > 100) player->health = 100;
+        cout << "Used item. HP restored to " << player->health << "\n";
+
+        // remove item from bag
+        player->bag->items.erase(player->bag->items.begin() + choice);
     }
 };
+
 
 
 
