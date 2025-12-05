@@ -2,25 +2,43 @@
 #include<vector>
 #include <cstddef>
 #include <ctime>
+#include<unordered_map>
 using namespace std;
 
+class Item;
+unordered_map<int, Item*> ID_MAP;
 
 class Item 
 {
-    public:
+public:
     int id;
+    static int next_id;
     string name;
     string description;
-    float weight; //in grams
+    float weight;
+    
+    Item(string name = "null", string desc = "non", float w = 0.0f)
+        : name(name), description(desc), weight(w)
+    {
+        id = next_id++;
+        ID_MAP[id] = this;
+    }
+
+    ~Item()
+    {
+        ID_MAP.erase(id);
+    }
 };
+
+int Item::next_id = 1; //global static id for every item created
+
 class Healing : public Item
 {
     public:
     int heal_value;
-    Healing(string name, int val): heal_value(val)
-    {
-        this->name = name;
-    }
+    Healing(string name, int val)
+    : Item(name), heal_value(val) {}
+
 };
 
 class Weapon : public Item
@@ -247,6 +265,26 @@ public:
     }
 };
 
+class Hand_gun : public Gun<Light_rounds>
+{
+public:
+    Hand_gun() {
+        mag = nullptr; // magazine is detachable
+    }
+
+    // Can discard magazine freely
+    void discard_mag() override {
+        mag = nullptr;
+    }
+    // load_from_mag(), use() inherited from Gun works as usual
+    Hand_gun(string name, int damage, Mag<Light_rounds>* mag)
+    {
+        this->name = name;
+        this->damage = damage;
+        this->mag = mag;
+    }
+};
+
 
 class Rifle : public Gun<Heavy_rounds>
 {
@@ -361,20 +399,8 @@ class Player
     Weapon* melee;
     Bag* bag;
 
-    Player()
-    {   name = "zero";
-        health = 100;
-        saturation = 100;
-        hydration = 100;
-        illness = 1;
-        main_hand = nullptr;
-        off_hand = nullptr;
-        melee = nullptr;
-        bag = nullptr;
-        position = 0;
-        velocity = 4.0; //  m/s
-    }
-    Player(string name, Bag* b, Weapon* main , Weapon* off, int position):name(name), bag(b), main_hand(main), off_hand(off), position(position){
+   
+    Player(string name = "zero", Bag* b = new Bag, Weapon* main = new Weapon , Weapon* off = new Weapon, int position=0, float velocity=4.0):name(name), bag(b), main_hand(main), off_hand(off), position(position), velocity(velocity){
         health = 100;
         saturation = 100;
         hydration = 100;
