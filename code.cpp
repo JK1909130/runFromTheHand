@@ -116,7 +116,7 @@ public:
     int current_count;
     T* cursor; // top of the stack
 
-    Mag(int max_size = 5)
+    Mag(int max_size=5)
     {
         cursor = nullptr;
         current_count = 0;
@@ -225,8 +225,10 @@ class Gun : public Weapon
 class Revolver : public Gun<Light_rounds>
 {
 public:
-    Revolver() 
+    Revolver(string name="null_rev", int damage=0)
     {
+        this->name=name;
+        this->damage=damage;
         mag = new Mag<Light_rounds>(6); // fixed cylinder
     }
 
@@ -268,8 +270,11 @@ public:
 class Hand_gun : public Gun<Light_rounds>
 {
 public:
-    Hand_gun() {
-        mag = nullptr; // magazine is detachable
+    Hand_gun(string name="null_handgun", int damage=0, Mag<Light_rounds>* mag=nullptr)
+    {
+        this->name=name;
+        this->damage=damage;
+        this->mag=mag;
     }
 
     // Can discard magazine freely
@@ -277,20 +282,18 @@ public:
         mag = nullptr;
     }
     // load_from_mag(), use() inherited from Gun works as usual
-    Hand_gun(string name, int damage, Mag<Light_rounds>* mag)
-    {
-        this->name = name;
-        this->damage = damage;
-        this->mag = mag;
-    }
+   
 };
 
 
 class Rifle : public Gun<Heavy_rounds>
 {
 public:
-    Rifle() {
-        mag = nullptr; // magazine is detachable
+    Rifle(string name="null_rifle", int damage=0, Mag<Heavy_rounds>* mag=nullptr)
+    {
+        this->name=name;
+        this->damage=damage;
+        this->mag=mag; // magazine is detachable
     }
 
     // Can discard magazine freely
@@ -303,7 +306,10 @@ public:
 class Shotgun : public Gun<Shell>
 {
 public:
-    Shotgun() {
+    Shotgun(string name="null_shotgun", int damage=0) 
+    {
+        this->name=name;
+        this->damage=damage;
         mag = nullptr; // shotguns have no magazine
     }
 
@@ -327,7 +333,11 @@ public:
     Shell* chamber1;
     Shell* chamber2;
 
-    DBarrel_Shotgun() : chamber1(nullptr), chamber2(nullptr) {}
+    DBarrel_Shotgun(string name="null_DBarrel", int damage=0) : chamber1(nullptr), chamber2(nullptr) 
+    {
+        this->name=name;
+        this->damage=damage;
+    }
 
     // Load into first empty chamber
     void load_shell(Shell* shell) {
@@ -541,15 +551,57 @@ private:
     }
 };
 
+class LootPool {
+public:
+    std::vector<Weapon*> weapons;
+    std::vector<Healing*> healItems;
+    std::vector<Light_rounds*> lRounds;
+    std::vector<Heavy_rounds*> hRounds;
+    std::vector<Shell*> shellies;
+    std::vector<Mag<Light_rounds>*> light_mags;
+    std::vector<Mag<Heavy_rounds>*> heavy_mags;
+    std::vector<Mag<Shell>*> shell_mags;
 
-
+    void addWeapon(Weapon* item)      { weapons.push_back(item); }
+    void addHealItem(Healing* item)  { healItems.push_back(item); }
+    void add_light_round(Light_rounds* item)  { lRounds.push_back(item); }
+    void add_heavy_round(Heavy_rounds* item)  { hRounds.push_back(item); }
+    void add_shell(Shell* item)  { shellies.push_back(item); }
+    void add_Lmagazine(Mag<Light_rounds>* item)  { light_mags.push_back(item); }
+    void add_Hmagazine(Mag<Heavy_rounds>* item)  { heavy_mags.push_back(item); }
+    void add_Smagazine(Mag<Shell>* item)  { shell_mags.push_back(item); }
+};
 
 
 int main()
 {
-    for(int hour=1;hour<=24;hour++)
-    {
+   LootPool pool1;
 
-    }
+
+   pool1.add_light_round(new Light_rounds(10));
+    pool1.add_light_round(new Light_rounds(11));
+    pool1.add_light_round(new Light_rounds(12));
+    pool1.add_light_round(new Light_rounds(13));
+    pool1.add_light_round(new Light_rounds(14));
+    pool1.add_light_round(new Light_rounds(15));
+
+   pool1.add_Lmagazine(new Mag<Light_rounds>(5));
+
+   for(int i=0;i<pool1.light_mags[0]->max;i++)
+   {
+    pool1.light_mags[0]->load(pool1.lRounds[i]); //this loads 5 of existing rounds into first mag in existence
+   }
+
+   pool1.addWeapon(new Revolver("Clot Pothyn", 40));
+   pool1.addWeapon(new Hand_gun("Clog 17", 25)); 
+   pool1.addWeapon(new Rifle("Car 98C", 70)); 
+   pool1.addWeapon(new Shotgun("Jury", 80)); 
+   pool1.addWeapon(new DBarrel_Shotgun("Shawn", 60)); 
+
+
+   cout<<pool1.weapons[1]->id<<endl;
+   cout<<pool1.weapons[1]->name<<endl;
+   cout<<pool1.weapons[1]->damage<<endl;
+   
     return 0;
 }
