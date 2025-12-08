@@ -3,7 +3,13 @@
 #include <cstddef>
 #include <ctime>
 #include<unordered_map>
+#include <algorithm>
+#include <random>
 using namespace std;
+
+class Player;
+extern Player* GLOBAL_PLAYER;
+Player* GLOBAL_PLAYER = nullptr;   // <<< REAL definition
 
 class Item;
 unordered_map<int, Item*> ID_MAP;
@@ -560,6 +566,15 @@ class Hand
     float rest_velocity = 0.00926;//  m/s
     Hand(float pos=0.0): position(pos) {}
 };
+bool hand_catch_check(Player& p, Hand& h)
+{
+    if (h.position >= p.position)
+    {
+        cout << "\n⚠️  GAME OVER — The Hand has caught you.\n";
+        return true;
+    }
+    return false;
+}
 
 class Combat {
 public:
@@ -615,6 +630,7 @@ private:
         default:
             cout << "Invalid choice. Skipping turn.\n";
         }
+        
     }
 
     void enemy_action() {
@@ -630,7 +646,7 @@ private:
         }
 
         int damage = weapon->damage;  // You can later add bullet/mag damage boost
-        cout << "Attacked with " << typeid(*weapon).name() << " for " << damage << " damage!\n";
+        cout << "Attacked with " << weapon->name << " for " << damage << " damage!\n";
         target->health -= damage;
         if (target->health < 0) target->health = 0;
 
@@ -645,7 +661,7 @@ private:
         }
 
         int damage = weapon->damage; // can extend with rounds later
-        cout << enemy->name << " attacks with " << typeid(*weapon).name() << " for " << damage << " damage!\n";
+        cout << "Attacked with " << weapon->name << " for " << damage << " damage!\n";
         target->health -= damage;
         if (target->health < 0) target->health = 0;
 
@@ -684,7 +700,8 @@ private:
 class LootPool {
 public:
     std::vector<Weapon*> weapons;
-    std::vector<Item*> healItems;
+    std::vector<Healing*> healingItems;   // restores HP
+    std::vector<Cure*>    cureItems;      // reduces infection
     std::vector<Food*> foodItems;
     std::vector<Drink*> drinkItems;
     std::vector<Light_rounds*> lRounds;
@@ -694,17 +711,50 @@ public:
     std::vector<Mag<Heavy_rounds>*> heavy_mags;
     std::vector<Mag<Shell>*> shell_mags;
 
-    void addWeapon(Weapon* item)      { weapons.push_back(item); }
-    void addHealItem(Item* item)      { healItems.push_back(item); }
-    void addFoodItem(Food* item)      { foodItems.push_back(item); }
-    void addDrinkItem(Drink* item)    { drinkItems.push_back(item); }
+    void addHealing(Healing* item) { healingItems.push_back(item); }
+    void addCure(Cure* item)       { cureItems.push_back(item); }
+
+    void addFoodItem(Food* item)   { foodItems.push_back(item); }
+    void addDrinkItem(Drink* item) { drinkItems.push_back(item); }
+
+    void addWeapon(Weapon* item)   { weapons.push_back(item); }
+
     void add_light_round(Light_rounds* item) { lRounds.push_back(item); }
     void add_heavy_round(Heavy_rounds* item) { hRounds.push_back(item); }
-    void add_shell(Shell* item)       { shellies.push_back(item); }
+    void add_shell(Shell* item)              { shellies.push_back(item); }
+
     void add_Lmagazine(Mag<Light_rounds>* item) { light_mags.push_back(item); }
     void add_Hmagazine(Mag<Heavy_rounds>* item) { heavy_mags.push_back(item); }
     void add_Smagazine(Mag<Shell>* item)        { shell_mags.push_back(item); }
 };
+
+bool player_has_weapon(Player* p, const string& name)
+{
+    // main hand
+    if (p->main_hand && p->main_hand->name == name)
+        return true;
+
+    // off hand
+    if (p->off_hand && p->off_hand->name == name)
+        return true;
+
+    // melee (rare but included)
+    if (p->melee && p->melee->name == name)
+        return true;
+
+    // bag
+    for (Item* it : p->bag->items)
+    {
+        if (Weapon* w = dynamic_cast<Weapon*>(it))
+        {
+            if (w->name == name)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 
 class Location
 {
@@ -733,14 +783,13 @@ public:
             e->name = "Infected";
             e->health = 50 + tier * 20;
 
-            // weapon based on tier (1–6)
-            if(tier <= 3)
-                e->weapon = random_tier1_weapon();
-            else
-                e->weapon = random_tier2_weapon();
+            e->weapon = new Melee();
+            e->weapon->name = "Claws";
+            e->weapon->damage = 10 + tier * 2;
 
-            enemies.push_back(e);
+            enemies.push_back(e);   // ★ REQUIRED
         }
+
     }
 
     void generate_loot()
@@ -756,8 +805,17 @@ public:
         for(int i=0;i<drinkCount;i++)
             LOOT_POOL->addDrinkItem(new Drink("Bottled Water", 20));
 
-        if(cureChance < tier * 10) // Higher tier = more likely
-            LOOT_POOL->addHealItem(new Cure("Vaccine", 1));
+        // Healing (HP recovery):
+        int healChance = rand() % 100;
+        if (healChance < tier * 15)   // heal spawns ~slightly more often than cure
+            LOOT_POOL->addHealing(new Healing("Medkit", 25));
+
+        // Cure (infection recovery):
+        //int cureChance = rand() % 100;
+        if (cureChance < tier * 20)   // Cure now spawns frequently
+            LOOT_POOL->addCure(new Cure("Vaccine", 30));
+
+
 
         // AMMO only tiers 3–6
         if(tier >= 3)
@@ -781,14 +839,17 @@ public:
                 LOOT_POOL->add_Smagazine(new Mag<Shell>(4));
         }
 
-        // WEAPONS appear rarely
         if(rand()%100 < tier*5)
         {
-            if(tier <= 3)
-                LOOT_POOL->addWeapon(random_tier1_weapon());
-            else
-                LOOT_POOL->addWeapon(random_tier2_weapon());
+            Weapon* w = (tier <= 3)
+                        ? random_tier1_weapon()
+                        : random_tier2_weapon();
+
+            // only spawn if player does NOT already have it
+            if (!player_has_weapon(GLOBAL_PLAYER, w->name))
+                LOOT_POOL->addWeapon(w);
         }
+
     }
 
 private:
@@ -833,6 +894,170 @@ void update_survival(Player& p)
     if (p.illness > 100) p.illness = 100;
 }
 
+int count_items(Bag* bag, string typeName)
+{
+    int count = 0;
+    for (Item* i : bag->items)
+    {
+        if (typeid(*i).name() == typeName) count++;
+    }
+    return count;
+}
+bool consume_item(Player& p, string typeName)
+{
+    for (int i=0; i < p.bag->items.size(); i++)
+    {
+        Item* it = p.bag->items[i];
+
+        if (typeid(*it).name() == typeName)
+        {
+            // apply effect
+            if (Food* f = dynamic_cast<Food*>(it))
+            {
+                p.saturation += f->sat_value;
+                if (p.saturation > 100) p.saturation = 100;
+            }
+            else if (Drink* d = dynamic_cast<Drink*>(it))
+            {
+                p.hydration += d->hyd_value;
+                if (p.hydration > 100) p.hydration = 100;
+            }
+            else if (Healing* h = dynamic_cast<Healing*>(it))
+            {
+                p.health += h->heal_value;
+                if (p.health > 100) p.health = 100;
+            }
+            else if (Cure* c = dynamic_cast<Cure*>(it))
+            {
+                p.illness -= c->cure_value;
+                if (p.illness < 0) p.illness = 0;
+            }
+
+            p.bag->items.erase(p.bag->items.begin() + i);
+            return true;
+        }
+    }
+
+    cout << "No item available.\n";
+    return false;
+}
+void load_single_weapon(Weapon* w, Player& p);
+void load_weapons_menu(Player& p);
+
+void rest_menu(Player& p)
+{
+    while (true)
+    {
+        cout << "\n==========================\n";
+        cout << "      REST & BAG MENU\n";
+        cout << "==========================\n\n";
+
+        cout << "1) Eat Food (x" << count_items(p.bag, typeid(Food).name()) << ")\n";
+        cout << "2) Drink Water (x" << count_items(p.bag, typeid(Drink).name()) << ")\n";
+        cout << "3) Heal (x" << count_items(p.bag, typeid(Healing).name()) << ")\n";
+        cout << "4) Cure Infection (x" << count_items(p.bag, typeid(Cure).name()) << ")\n\n";
+
+        cout << "5) Load Weapons\n";
+        cout << "6) Finish (end hour)\n";
+        cout << "Choice: ";
+
+        int c; cin >> c;
+
+        switch(c)
+        {
+            case 1: consume_item(p, typeid(Food).name()); break;
+            case 2: consume_item(p, typeid(Drink).name()); break;
+            case 3: consume_item(p, typeid(Healing).name()); break;
+            case 4: consume_item(p, typeid(Cure).name()); break;
+
+            case 5:
+                load_weapons_menu(p);
+                break;
+
+            case 6:
+                return; // return to main loop
+
+            default:
+                cout << "Invalid.\n";
+        }
+    }
+}
+void load_weapons_menu(Player& p)
+{
+    while (true)
+    {
+        cout << "\n==========================\n";
+        cout << "     LOAD WEAPONS MENU\n";
+        cout << "==========================\n\n";
+
+        cout << "Weapon 1: " << (p.main_hand ? p.main_hand->name : string("None")) << "\n";
+        cout << "Weapon 2: " << (p.off_hand ? p.off_hand->name : string("None")) << "\n\n";
+
+        cout << "Ammo in Bag:\n";
+        cout << " Light Rounds: " << count_items(p.bag, typeid(Light_rounds).name()) << "\n";
+        cout << " Heavy Rounds: " << count_items(p.bag, typeid(Heavy_rounds).name()) << "\n";
+        cout << " Shells:       " << count_items(p.bag, typeid(Shell).name()) << "\n\n";
+
+        cout << "1) Load Weapon 1\n";
+        cout << "2) Load Weapon 2\n";
+        cout << "9) Back\n";
+        cout << "0) Finish\n";
+
+        cout << "Choice: ";
+        int c; cin >> c;
+
+        if (c == 9) return;
+        if (c == 0) return;
+
+        if (c == 1 && p.main_hand)
+            load_single_weapon(p.main_hand, p);
+        else if (c == 2 && p.off_hand)
+            load_single_weapon(p.off_hand, p);
+        else
+            cout << "Invalid or weapon missing.\n";
+    }
+}
+void load_single_weapon(Weapon* w, Player& p)
+{
+    cout << "Loading: " << w->name << "\n";
+
+    // LIGHT GUN
+    if (Gun<Light_rounds>* g = dynamic_cast<Gun<Light_rounds>*>(w))
+    {
+        cout << "Add 1 light round? (1=yes,0=no): ";
+        int x; cin >> x;
+        if (x == 1 && consume_item(p, typeid(Light_rounds).name()))
+            g->load_to_chamber(new Light_rounds(10));
+    }
+
+    // HEAVY GUN
+    else if (Gun<Heavy_rounds>* g = dynamic_cast<Gun<Heavy_rounds>*>(w))
+    {
+        cout << "Add 1 heavy round? (1=yes,0=no): ";
+        int x; cin >> x;
+        if (x == 1 && consume_item(p, typeid(Heavy_rounds).name()))
+            g->load_to_chamber(new Heavy_rounds(15));
+    }
+
+    // SHOTGUN
+    else if (Gun<Shell>* g = dynamic_cast<Gun<Shell>*>(w))
+    {
+        cout << "Add 1 shell? (1=yes,0=no): ";
+        int x; cin >> x;
+        if (x == 1 && consume_item(p, typeid(Shell).name()))
+            g->load_to_chamber(new Shell(20));
+    }
+
+    // DOUBLE BARREL
+    else if (DBarrel_Shotgun* d = dynamic_cast<DBarrel_Shotgun*>(w))
+    {
+        cout << "Load shell? (1=yes,0=no): ";
+        int x; cin >> x;
+        if (x == 1 && consume_item(p, typeid(Shell).name()))
+            d->load_shell(new Shell(20));
+    }
+}
+
 
 int main()
 {
@@ -842,8 +1067,8 @@ int main()
     // LootPool initialization
     // ---------------------------------------------
     LootPool pool1;
-    
-    // Example mag & ammo fill (your original code)
+
+    // Example mag & ammo fill
     pool1.add_Lmagazine(new Mag<Light_rounds>(5));
     for(int i=0; i<pool1.light_mags[0]->max; i++)
     {
@@ -868,6 +1093,12 @@ int main()
     pool1.addWeapon(new Shotgun("Judgement", 135));
     pool1.addWeapon(new DBarrel_Shotgun("Buckle-up", 200));
 
+
+    Player p1;
+    Bag pBag;
+    p1.bag = &pBag;
+
+    GLOBAL_PLAYER = &p1;   // MUST COME FIRST
     // ---------------------------------------------
     // Create ALL 6 Locations
     // ---------------------------------------------
@@ -883,9 +1114,17 @@ int main()
     // ---------------------------------------------
     // Player Setup
     // ---------------------------------------------
-    Player p1;
-    Bag pBag;
-    p1.bag = &pBag;
+    
+
+    // Player starts with only a melee weapon: Kitchen Knife
+    p1.main_hand = nullptr;
+    p1.off_hand  = nullptr;
+    p1.melee = new Melee();
+    p1.melee->name = "Kitchen Knife";
+    p1.melee->damage = 25;
+
+    // global pointer assignment
+    GLOBAL_PLAYER = &p1;
 
     Hand h1; // The Hand (monster)
 
@@ -902,15 +1141,26 @@ int main()
              << "Infection: " << p1.illness << "%\n";
 
         cout << "----------------------------\n"
-                "|           ACTIONS          |\n"
-                "|   1. Find a place to loot  |\n"
-                "|   2. Rest and open bag     |\n"
+                "|           ACTIONS         |\n"
+                "|   1. Find a place to loot |\n"
+                "|   2. Rest and open bag    |\n"
                 "-----------------------------\n\n"
-                "  choice: ";
+                "choice: ";
 
         int choice;
         cin >> choice;
         cout << "\n";
+
+        // starvation / dehydration damage
+        if (p1.saturation <= 0 || p1.hydration <= 0)
+        {
+            p1.health -= 15;
+            if (p1.health <= 0)
+            {
+                cout << "You died from starvation/dehydration.\n";
+                return 0;
+            }
+        }
 
         switch(choice)
         {
@@ -919,119 +1169,127 @@ int main()
             // ---------------------------------------------
             case 1:
             {
-                // Move player + Hand forward
+                // Player + hand movement
                 p1.position += (p1.velocity * 3600);
                 h1.position += (h1.velocity * 3600);
 
-                // Check if Hand catches player
-                if(h1.position >= p1.position)
+                // GAME OVER IF HAND PASSED PLAYER
+                if (h1.position >= p1.position)
                 {
                     cout << "GAME OVER — The Hand caught you.\n";
                     return 0;
                 }
 
-                // FOOD/WATER drain for looting hour
+                // stat drain
                 p1.saturationDrain = 20;
                 p1.hydrationDrain = 20;
                 update_survival(p1);
 
                 // ============================================
-                // LOCATION SELECTION WITH LOCKS
+                // RANDOM LOCATION SELECTION (3 OPTIONS)
                 // ============================================
-                cout << "----------------------------\n"
-                        "|     Choose a location:     |\n"
-                        "| 1. Abandoned civilian house|\n"
-                        "| 2. Picnic camp             |\n"
-                        "| 3. Gas station             |\n"
-                        "| 4. Hospital                |\n";
+                vector<int> unlocked;
 
-                if (pass > 8)
-                    cout << "| 5. Abandoned troop camp    |\n";
-                else
-                    cout << "| 5. (Locked until Hour 9)   |\n";
+                unlocked.push_back(1);
+                unlocked.push_back(2);
+                unlocked.push_back(3);
+                unlocked.push_back(4);
 
-                if (pass > 16)
-                    cout << "| 6. Top secret facility     |\n";
-                else
-                    cout << "| 6. (Locked until Hour 17)  |\n";
+                if (pass > 8)  unlocked.push_back(5);
+                if (pass > 16) unlocked.push_back(6);
 
-                cout << "-----------------------------\n\n"
-                        "choice: ";
+                std::shuffle(unlocked.begin(), unlocked.end(), std::mt19937(std::random_device{}()));
 
-                int place;
-                cin >> place;
-                cout << "\n";
+                vector<int> shown;
+                for (int i = 0; i < 3 && i < unlocked.size(); i++)
+                    shown.push_back(unlocked[i]);
 
-                // Validate basic input
-                if(place < 1 || place > 6)
+                cout << "----------------------------\n";
+                cout << "     Choose a location:\n";
+                cout << "----------------------------\n";
+
+                for (int i = 0; i < shown.size(); i++)
                 {
-                    cout << "Invalid location.\n";
+                    cout << (i+1) << ") "
+                         << ALL_LOCATIONS[shown[i] - 1]->name << "\n";
+                }
+
+                cout << "----------------------------\n\n";
+                cout << "Choice: ";
+
+                int pick;
+                cin >> pick;
+
+                if (pick < 1 || pick > shown.size())
+                {
+                    cout << "Invalid.\n";
                     break;
                 }
 
-                // Validate locked locations
-                if(place == 5 && pass <= 8)
-                {
-                    cout << "Location 5 is locked until Hour 9.\n";
-                    break;
-                }
-                if(place == 6 && pass <= 16)
-                {
-                    cout << "Location 6 is locked until Hour 17.\n";
-                    break;
-                }
-
-                // Now selection is valid
-                Location* chosen = ALL_LOCATIONS[place - 1];
+                Location* chosen = ALL_LOCATIONS[shown[pick - 1] - 1];
                 cout << "You arrive at: " << chosen->name << "\n\n";
 
                 // ---------------------------------------------
-                // ENEMY ENCOUNTER
+                // ENEMIES (Melee only)
                 // ---------------------------------------------
-                if(!chosen->enemies.empty())
+                if (!chosen->enemies.empty())
                 {
-                    cout << chosen->enemies.size() << " enemies are here.\n";
+                    cout << chosen->enemies.size() << " enemies appear.\n";
 
-                    for(Enemy* enemy : chosen->enemies)
+                    for (Enemy* enemy : chosen->enemies)
                     {
+                        enemy->weapon = nullptr;      // melee only
+                        enemy->health = 40;           // weaker enemies
+
                         Combat fight(&p1, enemy);
                         fight.start();
 
-                        if(p1.health <= 0)
+                        if (p1.health <= 0)
                         {
                             cout << "GAME OVER — You died.\n";
                             return 0;
                         }
                     }
                 }
-                else
-                {
-                    cout << "No enemies found.\n";
-                }
+                else cout << "Area is empty.\n";
 
                 // ---------------------------------------------
-                // LOOT AREA & WEAPON EQUIP CHOICES
+                // LOOT COLLECTION
                 // ---------------------------------------------
                 cout << "\nSearching the area...\n";
-
-                // Weapons give equip prompt
-                for(Weapon* w : chosen->LOOT_POOL->weapons)
+                for (Weapon* w : chosen->LOOT_POOL->weapons)
                     p1.equip_weapon(w);
 
-                // Items (no prompts)
-                for(auto i : chosen->LOOT_POOL->healItems) p1.bag->add_to_bag(i);
-                for(auto i : chosen->LOOT_POOL->foodItems) p1.bag->add_to_bag(i);
-                for(auto i : chosen->LOOT_POOL->drinkItems) p1.bag->add_to_bag(i);
+                for (auto i : chosen->LOOT_POOL->healingItems)
+                    p1.bag->add_to_bag(i);
 
-                // Ammo
-                for(auto i : chosen->LOOT_POOL->lRounds) p1.bag->add_to_bag(i);
-                for(auto i : chosen->LOOT_POOL->hRounds) p1.bag->add_to_bag(i);
-                for(auto i : chosen->LOOT_POOL->shellies) p1.bag->add_to_bag(i);
+                for (auto i : chosen->LOOT_POOL->cureItems)
+                    p1.bag->add_to_bag(i);
 
-                // Magazines
-                for(auto i : chosen->LOOT_POOL->light_mags) p1.bag->add_to_bag(i);
-                for(auto i : chosen->LOOT_POOL->heavy_mags) p1.bag->add_to_bag(i);
-                for(auto i : chosen->LOOT_POOL->shell_mags) p1.bag->add_to_bag(i);
+                for (auto i : chosen->LOOT_POOL->foodItems)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->drinkItems)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->lRounds)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->hRounds)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->shellies)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->light_mags)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->heavy_mags)
+                    p1.bag->add_to_bag(i);
+
+                for (auto i : chosen->LOOT_POOL->shell_mags)
+                    p1.bag->add_to_bag(i);
+
 
                 cout << "Loot collected.\n\n";
 
@@ -1039,31 +1297,33 @@ int main()
             }
 
             // ---------------------------------------------
-            // 2. REST
+            // 2. REST & OPEN BAG
             // ---------------------------------------------
             case 2:
             {
-                // Hand moves slightly when resting
                 h1.position += (h1.rest_velocity * 3600);
 
-                // Low drain values for resting
                 p1.saturationDrain = 10;
-                p1.hydrationDrain = 10;
+                p1.hydrationDrain  = 10;
 
+                rest_menu(p1);
                 update_survival(p1);
 
-                cout << "You rest for an hour...\n\n";
+                // Hand catch-up check
+                if (h1.position >= p1.position)
+                {
+                    cout << "GAME OVER — The Hand caught you.\n";
+                    return 0;
+                }
+
                 break;
             }
 
             default:
-                cout << "Invalid choice.\n\n";
-                break;
+                cout << "Invalid choice.\n";
         }
     }
 
     cout << "You survived all 24 hours!\n";
     return 0;
 }
-
-
