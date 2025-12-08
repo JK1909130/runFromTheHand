@@ -15,16 +15,15 @@ public:
     static int next_id;
     string name;
     string description;
-    float weight;
     
-    Item(string name = "null", string desc = "non", float w = 0.0f)
-        : name(name), description(desc), weight(w)
+    Item(string name = "null", string desc = "non")
+        : name(name), description(desc)
     {
         id = next_id++;
         ID_MAP[id] = this;
     }
 
-    ~Item()
+    virtual ~Item() // NEW: make destructor virtual (safer for inheritance)
     {
         ID_MAP.erase(id);
     }
@@ -38,13 +37,35 @@ class Healing : public Item
     int heal_value;
     Healing(string name, int val)
     : Item(name), heal_value(val) {}
-
+};
+class Food : public Item
+{
+    public:
+    int sat_value;
+    Food(string name, int val)
+    : Item(name), sat_value(val) {}
+};
+class Drink : public Item
+{
+    public:
+    int hyd_value;
+    Drink(string name, int val)
+    : Item(name), hyd_value(val) {}
+};
+class Cure : public Item
+{
+    public:
+    int cure_value;
+    Cure(string name, int val)
+    : Item(name), cure_value(val) {}
 };
 
 class Weapon : public Item
 {
     public:
     int damage;
+    Weapon(int damage=0):damage(damage){}
+    virtual ~Weapon() {} // NEW: virtual destructor for polymorphic delete
 };
 
 class Light_rounds : public Item
@@ -179,6 +200,7 @@ class Gun : public Weapon
     T* chamber;
     Mag<T>* mag;
     Gun(): chamber(nullptr), mag(nullptr){}
+    
     virtual void load_to_chamber(T* round)
     {
         chamber = round;
@@ -222,6 +244,7 @@ class Gun : public Weapon
         return out;
     }
 };
+
 class Revolver : public Gun<Light_rounds>
 {
 public:
@@ -230,6 +253,13 @@ public:
         this->name=name;
         this->damage=damage;
         mag = new Mag<Light_rounds>(6); // fixed cylinder
+
+        // NEW: load all 6 slots with rounds
+        for(int i=0; i<mag->max; ++i)
+        {
+            mag->load(new Light_rounds(10)); // 10 is example damage_boost
+        }
+        // chamber starts empty; first shot will use mag->cursor logic in use()
     }
 
     void discard_mag() override {
@@ -274,7 +304,23 @@ public:
     {
         this->name=name;
         this->damage=damage;
-        this->mag=mag;
+
+        if(mag) {
+            this->mag = mag;
+        } else {
+            // NEW: create a default mag and fill it
+            this->mag = new Mag<Light_rounds>(5); // pistol mag size (can change)
+            for(int i=0; i<this->mag->max; ++i)
+            {
+                this->mag->load(new Light_rounds(10));
+            }
+        }
+
+        // NEW: load first round into chamber
+        if(this->mag && this->mag->cursor!=nullptr)
+        {
+            this->load_from_mag();
+        }
     }
 
     // Can discard magazine freely
@@ -293,7 +339,23 @@ public:
     {
         this->name=name;
         this->damage=damage;
-        this->mag=mag; // magazine is detachable
+
+        if(mag) {
+            this->mag = mag;
+        } else {
+            // NEW: rifle mag size is 5
+            this->mag = new Mag<Heavy_rounds>(5);
+            for(int i=0; i<this->mag->max; ++i)
+            {
+                this->mag->load(new Heavy_rounds(15)); // example damage_boost
+            }
+        }
+
+        // NEW: load first round into chamber
+        if(this->mag && this->mag->cursor!=nullptr)
+        {
+            this->load_from_mag();
+        }
     }
 
     // Can discard magazine freely
@@ -310,16 +372,24 @@ public:
     {
         this->name=name;
         this->damage=damage;
-        mag = nullptr; // shotguns have no magazine
+        mag = new Mag<Shell>(4); // shotguns have unique magazines (or tubes)
+
+        // NEW: fill the tube
+        for(int i=0; i<mag->max; ++i)
+        {
+            mag->load(new Shell(20)); // example boost
+        }
+
+        // NEW: load shell to chamber from mag
+        if(mag && mag->cursor!=nullptr)
+        {
+            this->load_from_mag();
+        }
     }
 
     // Loading shell directly into chamber
     void load_to_chamber(Shell* shell) override {
         chamber = shell;
-    }
-
-    void load_from_mag() override {
-        std::cout << "Shotgun has no magazine!\n";
     }
 
     void discard_mag() override {
@@ -337,6 +407,10 @@ public:
     {
         this->name=name;
         this->damage=damage;
+
+        // NEW: start with both barrels loaded
+        chamber1 = new Shell(20);
+        chamber2 = new Shell(20);
     }
 
     // Load into first empty chamber
@@ -408,15 +482,69 @@ class Player
     Weapon* off_hand;
     Weapon* melee;
     Bag* bag;
+    float saturationDrain; // dynamic drain amount
+    float hydrationDrain;
 
-   
-    Player(string name = "zero", Bag* b = new Bag, Weapon* main = new Weapon , Weapon* off = new Weapon, int position=0, float velocity=4.0):name(name), bag(b), main_hand(main), off_hand(off), position(position), velocity(velocity){
+    Player(string name="zero", Bag* b=nullptr, Weapon* main=nullptr, Weapon* off=nullptr, int position=1000, float velocity=4.0)
+    :name(name), bag(b), main_hand(main), off_hand(off), position(position), velocity(velocity)
+    {
         health = 100;
         saturation = 100;
         hydration = 100;
         illness = 1;
+
+        saturationDrain = 10;  // default (rest)
+        hydrationDrain = 10;
     }
-    
+    bool equip_weapon(Weapon* w)
+    {
+        cout << "You found a weapon: " << w->name << " (DMG: " << w->damage << ")\n";
+
+        cout << "Your weapons:\n";
+        cout << "1) Main hand: " << (main_hand ? main_hand->name : "None") << "\n";
+        cout << "2) Off hand:  " << (off_hand ? off_hand->name : "None") << "\n";
+
+        // If player has a free slot, auto fill
+        if (!main_hand)
+        {
+            main_hand = w;
+            cout << "Equipped to MAIN HAND.\n";
+            return true;
+        }
+        if (!off_hand)
+        {
+            off_hand = w;
+            cout << "Equipped to OFF HAND.\n";
+            return true;
+        }
+
+        // Player already has two weapons — must choose
+        cout << "\nYou already carry 2 weapons.\n";
+        cout << "Replace one?\n";
+        cout << "1) Replace MAIN HAND\n";
+        cout << "2) Replace OFF HAND\n";
+        cout << "3) Ignore weapon\n";
+        cout << "Choice: ";
+
+        int c;
+        cin >> c;
+
+        switch(c)
+        {
+            case 1:
+                main_hand = w;
+                cout << "Main hand replaced.\n";
+                return true;
+            case 2:
+                off_hand = w;
+                cout << "Off hand replaced.\n";
+                return true;
+            default:
+                cout << "Weapon ignored.\n";
+                return false;
+        }
+    }
+
 };
 class Enemy
 {   public:
@@ -428,7 +556,9 @@ class Hand
 {
     public:
     float position; //also in meters
-    float velocity = 4.0 + 4.0 * ((0.023148148 - 0.01) / 4.0) + 0.01;
+    float velocity = 4.017361; // m/s
+    float rest_velocity = 0.00926;//  m/s
+    Hand(float pos=0.0): position(pos) {}
 };
 
 class Combat {
@@ -554,7 +684,9 @@ private:
 class LootPool {
 public:
     std::vector<Weapon*> weapons;
-    std::vector<Healing*> healItems;
+    std::vector<Item*> healItems;
+    std::vector<Food*> foodItems;
+    std::vector<Drink*> drinkItems;
     std::vector<Light_rounds*> lRounds;
     std::vector<Heavy_rounds*> hRounds;
     std::vector<Shell*> shellies;
@@ -563,45 +695,375 @@ public:
     std::vector<Mag<Shell>*> shell_mags;
 
     void addWeapon(Weapon* item)      { weapons.push_back(item); }
-    void addHealItem(Healing* item)  { healItems.push_back(item); }
-    void add_light_round(Light_rounds* item)  { lRounds.push_back(item); }
-    void add_heavy_round(Heavy_rounds* item)  { hRounds.push_back(item); }
-    void add_shell(Shell* item)  { shellies.push_back(item); }
-    void add_Lmagazine(Mag<Light_rounds>* item)  { light_mags.push_back(item); }
-    void add_Hmagazine(Mag<Heavy_rounds>* item)  { heavy_mags.push_back(item); }
-    void add_Smagazine(Mag<Shell>* item)  { shell_mags.push_back(item); }
+    void addHealItem(Item* item)      { healItems.push_back(item); }
+    void addFoodItem(Food* item)      { foodItems.push_back(item); }
+    void addDrinkItem(Drink* item)    { drinkItems.push_back(item); }
+    void add_light_round(Light_rounds* item) { lRounds.push_back(item); }
+    void add_heavy_round(Heavy_rounds* item) { hRounds.push_back(item); }
+    void add_shell(Shell* item)       { shellies.push_back(item); }
+    void add_Lmagazine(Mag<Light_rounds>* item) { light_mags.push_back(item); }
+    void add_Hmagazine(Mag<Heavy_rounds>* item) { heavy_mags.push_back(item); }
+    void add_Smagazine(Mag<Shell>* item)        { shell_mags.push_back(item); }
 };
+
+class Location
+{
+public:
+    string name;
+    int tier;           // 1 to 6
+    LootPool* LOOT_POOL;
+    vector<Enemy*> enemies;
+
+    Location(string n, int t)
+        : name(n), tier(t)
+    {
+        LOOT_POOL = new LootPool();
+        generate_enemies();
+        generate_loot();
+    }
+
+    void generate_enemies()
+    {
+        int maxEnemies = 3;
+        int count = rand() % (maxEnemies + 1); // 0–3
+
+        for(int i=0; i<count; i++)
+        {
+            Enemy* e = new Enemy();
+            e->name = "Infected";
+            e->health = 50 + tier * 20;
+
+            // weapon based on tier (1–6)
+            if(tier <= 3)
+                e->weapon = random_tier1_weapon();
+            else
+                e->weapon = random_tier2_weapon();
+
+            enemies.push_back(e);
+        }
+    }
+
+    void generate_loot()
+    {
+        // FOOD & DRINK always appear
+        int foodCount = rand() % (tier + 1);
+        int drinkCount = rand() % (tier + 1);
+        int cureChance = rand() % 100;
+
+        for(int i=0;i<foodCount;i++)
+            LOOT_POOL->addFoodItem(new Food("Ration", 15));
+
+        for(int i=0;i<drinkCount;i++)
+            LOOT_POOL->addDrinkItem(new Drink("Bottled Water", 20));
+
+        if(cureChance < tier * 10) // Higher tier = more likely
+            LOOT_POOL->addHealItem(new Cure("Vaccine", 1));
+
+        // AMMO only tiers 3–6
+        if(tier >= 3)
+        {
+            int ammoCount = rand() % (tier + 2);
+            for(int i=0;i<ammoCount;i++)
+            {
+                LOOT_POOL->add_light_round(new Light_rounds(10));
+                LOOT_POOL->add_heavy_round(new Heavy_rounds(15));
+                LOOT_POOL->add_shell(new Shell(20));
+            }
+
+            // magazines sometimes appear
+            if(rand() % 100 < tier * 12)
+                LOOT_POOL->add_Lmagazine(new Mag<Light_rounds>(5));
+
+            if(rand() % 100 < tier * 12)
+                LOOT_POOL->add_Hmagazine(new Mag<Heavy_rounds>(5));
+
+            if(rand() % 100 < tier * 12)
+                LOOT_POOL->add_Smagazine(new Mag<Shell>(4));
+        }
+
+        // WEAPONS appear rarely
+        if(rand()%100 < tier*5)
+        {
+            if(tier <= 3)
+                LOOT_POOL->addWeapon(random_tier1_weapon());
+            else
+                LOOT_POOL->addWeapon(random_tier2_weapon());
+        }
+    }
+
+private:
+
+    Weapon* random_tier1_weapon()
+    {
+        vector<Weapon*> w = {
+            new Revolver("Clot Pothyn", 40),
+            new Hand_gun("Clog 17", 25),
+            new Rifle("Car 98C", 70),
+            new Shotgun("Jury", 50),
+            new DBarrel_Shotgun("Shawn", 70)
+        };
+        return w[rand() % w.size()];
+    }
+
+    Weapon* random_tier2_weapon()
+    {
+        vector<Weapon*> w = {
+            new Revolver("Hand Cannon", 80),
+            new Hand_gun("1191", 35),
+            new Rifle("Outlaw", 140),
+            new Shotgun("Judgement", 135),
+            new DBarrel_Shotgun("Buckle-up", 200)
+        };
+        return w[rand() % w.size()];
+    }
+};
+void update_survival(Player& p)
+{
+    float infectionFactor = p.illness / 100.0f;  // e.g. 20% infection = 0.20
+
+    // Drain stats depending on infection
+    p.saturation -= p.saturationDrain * (1 + infectionFactor);
+    p.hydration -= p.hydrationDrain * (1 + infectionFactor);
+
+    if (p.saturation < 0) p.saturation = 0;
+    if (p.hydration < 0) p.hydration = 0;
+
+    // Infection rises +10 per hour
+    p.illness += 10;
+    if (p.illness > 100) p.illness = 100;
+}
 
 
 int main()
 {
-   LootPool pool1;
+    srand(time(NULL));
 
+    // ---------------------------------------------
+    // LootPool initialization
+    // ---------------------------------------------
+    LootPool pool1;
+    
+    // Example mag & ammo fill (your original code)
+    pool1.add_Lmagazine(new Mag<Light_rounds>(5));
+    for(int i=0; i<pool1.light_mags[0]->max; i++)
+    {
+        pool1.add_light_round(new Light_rounds(10));
+        pool1.light_mags[0]->load(pool1.lRounds[i]);
+    }
 
-   pool1.add_light_round(new Light_rounds(10));
-    pool1.add_light_round(new Light_rounds(11));
-    pool1.add_light_round(new Light_rounds(12));
-    pool1.add_light_round(new Light_rounds(13));
-    pool1.add_light_round(new Light_rounds(14));
-    pool1.add_light_round(new Light_rounds(15));
+    // ---------------------------------------------
+    // ALL weapons defined here (Tier 1 + Tier 2)
+    // ---------------------------------------------
+    // Tier 1
+    pool1.addWeapon(new Revolver("Clot Pothyn", 40));
+    pool1.addWeapon(new Hand_gun("Clog 17", 25));
+    pool1.addWeapon(new Rifle("Car 98C", 70));
+    pool1.addWeapon(new Shotgun("Jury", 50));
+    pool1.addWeapon(new DBarrel_Shotgun("Shawn", 70));
 
-   pool1.add_Lmagazine(new Mag<Light_rounds>(5));
+    // Tier 2
+    pool1.addWeapon(new Revolver("Hand Cannon", 80));
+    pool1.addWeapon(new Hand_gun("1191", 35));
+    pool1.addWeapon(new Rifle("Outlaw", 140));
+    pool1.addWeapon(new Shotgun("Judgement", 135));
+    pool1.addWeapon(new DBarrel_Shotgun("Buckle-up", 200));
 
-   for(int i=0;i<pool1.light_mags[0]->max;i++)
-   {
-    pool1.light_mags[0]->load(pool1.lRounds[i]); //this loads 5 of existing rounds into first mag in existence
-   }
+    // ---------------------------------------------
+    // Create ALL 6 Locations
+    // ---------------------------------------------
+    vector<Location*> ALL_LOCATIONS = {
+        new Location("Abandoned Civilian House", 1),
+        new Location("Picnic Camp", 2),
+        new Location("Gas Station", 3),
+        new Location("Hospital", 4),
+        new Location("Abandoned Troop Camp", 5),
+        new Location("Top Secret Facility", 6)
+    };
 
-   pool1.addWeapon(new Revolver("Clot Pothyn", 40));
-   pool1.addWeapon(new Hand_gun("Clog 17", 25)); 
-   pool1.addWeapon(new Rifle("Car 98C", 70)); 
-   pool1.addWeapon(new Shotgun("Jury", 80)); 
-   pool1.addWeapon(new DBarrel_Shotgun("Shawn", 60)); 
+    // ---------------------------------------------
+    // Player Setup
+    // ---------------------------------------------
+    Player p1;
+    Bag pBag;
+    p1.bag = &pBag;
 
+    Hand h1; // The Hand (monster)
 
-   cout<<pool1.weapons[1]->id<<endl;
-   cout<<pool1.weapons[1]->name<<endl;
-   cout<<pool1.weapons[1]->damage<<endl;
-   
+    // ---------------------------------------------
+    // Start 24-hour game loop
+    // ---------------------------------------------
+    for(int pass = 1; pass <= 24; pass++)
+    {
+        cout << "Hour: " << pass << "#\n";
+        cout << "The Hand is " << p1.position - h1.position << "m(s) away\n";
+        cout << "Health: " << p1.health << "\n"
+             << "Food: " << p1.saturation << "\n"
+             << "Water: " << p1.hydration << "\n"
+             << "Infection: " << p1.illness << "%\n";
+
+        cout << "----------------------------\n"
+                "|           ACTIONS          |\n"
+                "|   1. Find a place to loot  |\n"
+                "|   2. Rest and open bag     |\n"
+                "-----------------------------\n\n"
+                "  choice: ";
+
+        int choice;
+        cin >> choice;
+        cout << "\n";
+
+        switch(choice)
+        {
+            // ---------------------------------------------
+            // 1. LOOT A LOCATION
+            // ---------------------------------------------
+            case 1:
+            {
+                // Move player + Hand forward
+                p1.position += (p1.velocity * 3600);
+                h1.position += (h1.velocity * 3600);
+
+                // Check if Hand catches player
+                if(h1.position >= p1.position)
+                {
+                    cout << "GAME OVER — The Hand caught you.\n";
+                    return 0;
+                }
+
+                // FOOD/WATER drain for looting hour
+                p1.saturationDrain = 20;
+                p1.hydrationDrain = 20;
+                update_survival(p1);
+
+                // ============================================
+                // LOCATION SELECTION WITH LOCKS
+                // ============================================
+                cout << "----------------------------\n"
+                        "|     Choose a location:     |\n"
+                        "| 1. Abandoned civilian house|\n"
+                        "| 2. Picnic camp             |\n"
+                        "| 3. Gas station             |\n"
+                        "| 4. Hospital                |\n";
+
+                if (pass > 8)
+                    cout << "| 5. Abandoned troop camp    |\n";
+                else
+                    cout << "| 5. (Locked until Hour 9)   |\n";
+
+                if (pass > 16)
+                    cout << "| 6. Top secret facility     |\n";
+                else
+                    cout << "| 6. (Locked until Hour 17)  |\n";
+
+                cout << "-----------------------------\n\n"
+                        "choice: ";
+
+                int place;
+                cin >> place;
+                cout << "\n";
+
+                // Validate basic input
+                if(place < 1 || place > 6)
+                {
+                    cout << "Invalid location.\n";
+                    break;
+                }
+
+                // Validate locked locations
+                if(place == 5 && pass <= 8)
+                {
+                    cout << "Location 5 is locked until Hour 9.\n";
+                    break;
+                }
+                if(place == 6 && pass <= 16)
+                {
+                    cout << "Location 6 is locked until Hour 17.\n";
+                    break;
+                }
+
+                // Now selection is valid
+                Location* chosen = ALL_LOCATIONS[place - 1];
+                cout << "You arrive at: " << chosen->name << "\n\n";
+
+                // ---------------------------------------------
+                // ENEMY ENCOUNTER
+                // ---------------------------------------------
+                if(!chosen->enemies.empty())
+                {
+                    cout << chosen->enemies.size() << " enemies are here.\n";
+
+                    for(Enemy* enemy : chosen->enemies)
+                    {
+                        Combat fight(&p1, enemy);
+                        fight.start();
+
+                        if(p1.health <= 0)
+                        {
+                            cout << "GAME OVER — You died.\n";
+                            return 0;
+                        }
+                    }
+                }
+                else
+                {
+                    cout << "No enemies found.\n";
+                }
+
+                // ---------------------------------------------
+                // LOOT AREA & WEAPON EQUIP CHOICES
+                // ---------------------------------------------
+                cout << "\nSearching the area...\n";
+
+                // Weapons give equip prompt
+                for(Weapon* w : chosen->LOOT_POOL->weapons)
+                    p1.equip_weapon(w);
+
+                // Items (no prompts)
+                for(auto i : chosen->LOOT_POOL->healItems) p1.bag->add_to_bag(i);
+                for(auto i : chosen->LOOT_POOL->foodItems) p1.bag->add_to_bag(i);
+                for(auto i : chosen->LOOT_POOL->drinkItems) p1.bag->add_to_bag(i);
+
+                // Ammo
+                for(auto i : chosen->LOOT_POOL->lRounds) p1.bag->add_to_bag(i);
+                for(auto i : chosen->LOOT_POOL->hRounds) p1.bag->add_to_bag(i);
+                for(auto i : chosen->LOOT_POOL->shellies) p1.bag->add_to_bag(i);
+
+                // Magazines
+                for(auto i : chosen->LOOT_POOL->light_mags) p1.bag->add_to_bag(i);
+                for(auto i : chosen->LOOT_POOL->heavy_mags) p1.bag->add_to_bag(i);
+                for(auto i : chosen->LOOT_POOL->shell_mags) p1.bag->add_to_bag(i);
+
+                cout << "Loot collected.\n\n";
+
+                break;
+            }
+
+            // ---------------------------------------------
+            // 2. REST
+            // ---------------------------------------------
+            case 2:
+            {
+                // Hand moves slightly when resting
+                h1.position += (h1.rest_velocity * 3600);
+
+                // Low drain values for resting
+                p1.saturationDrain = 10;
+                p1.hydrationDrain = 10;
+
+                update_survival(p1);
+
+                cout << "You rest for an hour...\n\n";
+                break;
+            }
+
+            default:
+                cout << "Invalid choice.\n\n";
+                break;
+        }
+    }
+
+    cout << "You survived all 24 hours!\n";
     return 0;
 }
+
+
