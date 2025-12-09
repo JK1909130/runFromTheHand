@@ -5,6 +5,7 @@
 #include<unordered_map>
 #include <algorithm>
 #include <random>
+#include<functional>
 using namespace std;
 
 class Player;
@@ -785,7 +786,7 @@ public:
 
             e->weapon = new Melee();
             e->weapon->name = "Claws";
-            e->weapon->damage = 10 + tier * 2;
+            e->weapon->damage = 5 + tier * 2;
 
             enemies.push_back(e);   // ★ REQUIRED
         }
@@ -839,45 +840,62 @@ public:
                 LOOT_POOL->add_Smagazine(new Mag<Shell>(4));
         }
 
-        if(rand()%100 < tier*5)
-        {
-            Weapon* w = (tier <= 3)
-                        ? random_tier1_weapon()
-                        : random_tier2_weapon();
+        Weapon* w = (tier <= 3)
+        ? random_tier1_weapon(GLOBAL_PLAYER)
+        : random_tier2_weapon(GLOBAL_PLAYER);
 
-            // only spawn if player does NOT already have it
-            if (!player_has_weapon(GLOBAL_PLAYER, w->name))
-                LOOT_POOL->addWeapon(w);
-        }
-
+        if (w != nullptr)
+        LOOT_POOL->addWeapon(w);
     }
 
 private:
 
-    Weapon* random_tier1_weapon()
-    {
-        vector<Weapon*> w = {
-            new Revolver("Clot Pothyn", 40),
-            new Hand_gun("Clog 17", 25),
-            new Rifle("Car 98C", 70),
-            new Shotgun("Jury", 50),
-            new DBarrel_Shotgun("Shawn", 70)
+        Weapon* random_tier1_weapon(Player* p)
+        {
+        vector<pair<string, function<Weapon*()>>> w = 
+        {
+            {"Clot Pothyn", [](){ return new Revolver("Clot Pothyn", 40); }},
+            {"Clog 17", [](){ return new Hand_gun("Clog 17", 25); }},
+            {"Car 98C", [](){ return new Rifle("Car 98C", 70); }},
+            {"Jury", [](){ return new Shotgun("Jury", 50); }},
+            {"Shawn", [](){ return new DBarrel_Shotgun("Shawn", 70); }}
         };
-        return w[rand() % w.size()];
+
+        // Shuffle choices so spawn pool varies
+        std::shuffle(w.begin(), w.end(), std::mt19937(std::random_device{}()));
+
+        // Find the first weapon the player does NOT already have
+        for (auto& entry : w)
+        {
+            if (!player_has_weapon(p, entry.first))
+                return entry.second();
+        }
+
+        return nullptr; // Player owns everything → no weapon spawns
     }
 
-    Weapon* random_tier2_weapon()
+    Weapon* random_tier2_weapon(Player* p)
     {
-        vector<Weapon*> w = {
-            new Revolver("Hand Cannon", 80),
-            new Hand_gun("1191", 35),
-            new Rifle("Outlaw", 140),
-            new Shotgun("Judgement", 135),
-            new DBarrel_Shotgun("Buckle-up", 200)
+        vector<pair<string, function<Weapon*()>>> w = {
+            {"Hand Cannon", [](){ return new Revolver("Hand Cannon", 80); }},
+            {"1191", [](){ return new Hand_gun("1191", 35); }},
+            {"Outlaw", [](){ return new Rifle("Outlaw", 140); }},
+            {"Judgement", [](){ return new Shotgun("Judgement", 135); }},
+            {"Buckle-up", [](){ return new DBarrel_Shotgun("Buckle-up", 200); }}
         };
-        return w[rand() % w.size()];
-    }
-};
+
+        std::shuffle(w.begin(), w.end(), std::mt19937(std::random_device{}()));
+
+        for (auto& entry : w)
+        {
+            if (!player_has_weapon(p, entry.first))
+                return entry.second();
+        }
+
+        return nullptr;
+}
+
+    };
 void update_survival(Player& p)
 {
     float infectionFactor = p.illness / 100.0f;  // e.g. 20% infection = 0.20
@@ -1097,6 +1115,8 @@ int main()
     Player p1;
     Bag pBag;
     p1.bag = &pBag;
+    cout << "Enter your name: ";
+    cin >> p1.name;
 
     GLOBAL_PLAYER = &p1;   // MUST COME FIRST
     // ---------------------------------------------
@@ -1238,8 +1258,7 @@ int main()
 
                     for (Enemy* enemy : chosen->enemies)
                     {
-                        enemy->weapon = nullptr;      // melee only
-                        enemy->health = 40;           // weaker enemies
+                        enemy->health = 67;           // weaker enemies
 
                         Combat fight(&p1, enemy);
                         fight.start();
