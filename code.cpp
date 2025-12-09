@@ -785,7 +785,7 @@ public:
             e->health = 50 + tier * 20;
 
             e->weapon = new Melee();
-            e->weapon->name = "Claws";
+            e->weapon->name = "Spatula";
             e->weapon->damage = 5 + tier * 2;
 
             enemies.push_back(e);   // ★ REQUIRED
