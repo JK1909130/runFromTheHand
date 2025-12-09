@@ -492,7 +492,7 @@ class Player
     float saturationDrain; // dynamic drain amount
     float hydrationDrain;
 
-    Player(string name="zero", Bag* b=nullptr, Weapon* main=nullptr, Weapon* off=nullptr, int position=1000, float velocity=4.0)
+    Player(string name="zero", Bag* b=nullptr, Weapon* main=nullptr, Weapon* off=nullptr, int position=1500, float velocity=4.0)
     :name(name), bag(b), main_hand(main), off_hand(off), position(position), velocity(velocity)
     {
         health = 100;
@@ -571,7 +571,7 @@ bool hand_catch_check(Player& p, Hand& h)
 {
     if (h.position >= p.position)
     {
-        cout << "\n⚠️  GAME OVER — The Hand has caught you.\n";
+        cout << "\n  GAME OVER — The Hand has caught you.\n";
         return true;
     }
     return false;
